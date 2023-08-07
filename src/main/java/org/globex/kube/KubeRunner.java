@@ -127,8 +127,7 @@ public class KubeRunner {
         // create bot
         boolean errorFlag = false;
         JsonObject createBotPayload = new JsonObject().put("name", bot).put("email", bot + "@example.org")
-                .put("password",userPassword + "-bot").put("username", bot).put("roles", new JsonArray().add("bot"))
-                .put("verified", true);
+                .put("password",userPassword + "-bot").put("username", bot).put("roles", new JsonArray().add("bot"));
         try {
             rocketchatService.createUser(createBotPayload.encode(), adminUserId, adminToken);
             LOGGER.info("User " + bot + " created");
@@ -176,7 +175,7 @@ public class KubeRunner {
             // create user
             String user = userPrefix + i;
             JsonObject createUserPayload = new JsonObject().put("name", user).put("email", user + "@example.org")
-                    .put("password", userPassword).put("username", user).put("verified", true);
+                    .put("password", userPassword).put("username", user);
             try {
                 rocketchatService.createUser(createUserPayload.encode(), adminUserId, adminToken);
                 LOGGER.info("User " + user + " created");
@@ -302,7 +301,6 @@ public class KubeRunner {
             try {
                 Response response = rocketchatService.createIntegration(createIncomingIntegrationPayload.encode(), adminUserId, adminToken);
                 JsonObject j = new JsonObject(getEntity(response));
-                System.out.println(j.encodePrettily());
                 LOGGER.info("Incoming webhook created");
             } catch (ClientWebApplicationException e) {
                 Response response = e.getResponse();
