@@ -1,8 +1,11 @@
 package org.globex.kube;
 
+import io.fabric8.kubernetes.api.model.Secret;
+import io.fabric8.kubernetes.api.model.SecretBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
-import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.dsl.Resource;
+import io.fabric8.openshift.api.model.Route;
+import io.fabric8.openshift.client.OpenShiftClient;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -17,7 +20,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
@@ -26,7 +31,7 @@ public class KubeRunner {
     private static final Logger LOGGER = LoggerFactory.getLogger(KubeRunner.class);
 
     @Inject
-    KubernetesClient client;
+    OpenShiftClient client;
 
     @RestClient
     RocketchatService rocketchatService;
@@ -276,6 +281,8 @@ public class KubeRunner {
             }
         }
 
+        String webhookToken = "";
+        String webhookId = "";
         String incomingIntegration = "incoming_webhook";
         String incomingIntegrationScript = """
                 class Script {
@@ -290,10 +297,12 @@ public class KubeRunner {
                     }
                 }
                 """;
-        found = integrations.stream().map(o -> (JsonObject)o)
-                .anyMatch(j -> (incomingIntegration.equals(j.getString("name")) && "webhook-incoming".equals(j.getString("type"))));
-        if (found) {
+        Optional<JsonObject> integration = integrations.stream().map(o -> (JsonObject)o)
+                .filter(j -> (incomingIntegration.equals(j.getString("name")) && "webhook-incoming".equals(j.getString("type")))).findFirst();
+        if (integration.isPresent()) {
             LOGGER.warn("Incoming webhook already exists");
+            webhookToken = integration.get().getString("token");
+            webhookId = integration.get().getString("_id");
         } else {
             JsonObject createIncomingIntegrationPayload = new JsonObject().put("type", "webhook-incoming")
                     .put("name", incomingIntegration).put("enabled", true).put("username", bot)
@@ -301,6 +310,8 @@ public class KubeRunner {
             try {
                 Response response = rocketchatService.createIntegration(createIncomingIntegrationPayload.encode(), adminUserId, adminToken);
                 JsonObject j = new JsonObject(getEntity(response));
+                webhookToken = j.getJsonObject("integration").getString("token");
+                webhookId = j.getJsonObject("integration").getString("_id");
                 LOGGER.info("Incoming webhook created");
             } catch (ClientWebApplicationException e) {
                 Response response = e.getResponse();
@@ -310,10 +321,33 @@ public class KubeRunner {
             }
 
             if (errorFlag) {
-                LOGGER.error("Exception while outgoing webhook. Exiting...");
+                LOGGER.error("Exception while creating incoming webhook. Exiting...");
                 return -1;
             }
         }
+
+        // create secret for webhook
+        String rocketchatSecret = System.getenv().getOrDefault("ROCKETCHAT_SECRET", "rocketchat-webhook");
+        String rocketchatRoute = System.getenv().getOrDefault("ROCKETCHAT_ROUTE", "rocketchat");
+        Secret secret = client.secrets().inNamespace(namespace).withName(rocketchatSecret).get();
+        if (secret != null) {
+            LOGGER.warn("Secret " + rocketchatSecret + " already exists");
+        }
+
+        Route route = client.routes().inNamespace(namespace).withName(rocketchatRoute).get();
+        if (route == null) {
+            LOGGER.error("Route " + rocketchatRoute + " not found in namespace " + namespace + ". Exiting...");
+            return -1;
+        }
+        String protocol = "http";
+        if (route.getSpec().getTls() != null && route.getSpec().getTls().getTermination().equals("edge")) {
+            protocol = "https";
+        }
+        String webhookUrl = protocol + "://" + route.getSpec().getHost() + "/hooks/" + webhookId + "/" + webhookToken;
+        Secret newSecret = new SecretBuilder().withNewMetadata().withName(rocketchatSecret).endMetadata()
+                .addToData("rocketchat.webhook.url", Base64.getEncoder().encodeToString(webhookUrl.getBytes(StandardCharsets.UTF_8))).build();
+        client.secrets().inNamespace(namespace).resource(newSecret).serverSideApply();
+        LOGGER.info("Webhook secret created");
 
         return 0;
     }
