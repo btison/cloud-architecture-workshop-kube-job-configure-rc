@@ -119,7 +119,7 @@ public class KubeRunner {
 
         // set up RocketChat
         String bot = System.getenv().getOrDefault("BOT_NAME", "Globex.support");
-        String supportGroup = System.getenv().getOrDefault("GLOBEX_SUPPORT_GROUP", "GlobexSupport");
+        String supportGroup = System.getenv().getOrDefault("GLOBEX_SUPPORT_GROUP", "globex-support");
 
         String userPrefix = System.getenv().getOrDefault("USER_PREFIX", "user");
         String userPassword = System.getenv().getOrDefault("USER_PASSWORD", "openshift");
@@ -127,7 +127,7 @@ public class KubeRunner {
         String numUserStart = System.getenv().getOrDefault("NUM_USERS_START", "1");
         int numUsersStart = Integer.parseInt(numUserStart);
 
-        String channelPrefix = System.getenv().getOrDefault("CHANNEL_PREFIX", "GlobexSupport");
+        String channelPrefix = System.getenv().getOrDefault("CHANNEL_PREFIX", "globex-support-" + userPrefix);
 
         // create bot
         boolean errorFlag = false;
